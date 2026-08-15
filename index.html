@@ -72,6 +72,12 @@ button:hover{opacity:0.9;}
 .rec-time-str{color:#aaa;font-size:12px;}
 .record-empty{color:#888;padding:10px;}
 </style>
+<link rel="manifest" href="./manifest.json">
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./pwabuilder-sw.js');
+}
+</script>
 </head>
 <body>
 <h1>多通道计时器 mm:ss.ms（分钟无上限）</h1>
