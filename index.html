@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>多通道计时器 mm:ss.ms</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;}
+body{background:#12141a;color:#eee;padding:12px;max-width:1200px;margin:0 auto;}
+h1{font-size:22px;margin-bottom:16px;text-align:center;}
+.top-bar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;}
+button{background:#2563eb;color:#fff;border:none;padding:8px 12px;border-radius:6px;font-size:14px;cursor:pointer;}
+button.del{background:#dc2626;}
+button.secondary{background:#374151;}
+button.success{background:#059669;}
+button:hover{opacity:0.9;}
+
+.channel-card{
+  background:#1f2937;
+  border-radius:10px;
+  padding:14px;
+  margin-bottom:12px;
+}
+.channel-head{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  margin-bottom:10px;
+  flex-wrap:wrap;
+}
+.channel-name-input{
+  flex:1;
+  min-width:140px;
+  background:#111827;
+  color:#fff;
+  border:1px solid #4b5563;
+  padding:7px 10px;
+  border-radius:6px;
+  font-size:16px;
+}
+.time-display{
+  font-size:clamp(32px,8vw,52px);
+  font-family:Consolas,Monaco,monospace;
+  color:#34d399;
+  margin:8px 0;
+  letter-spacing:2px;
+}
+.ctrl-row{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+}
+
+.record-block{
+  margin-top:24px;
+}
+.record-block h2{
+  font-size:18px;margin-bottom:10px;
+}
+.record-item{
+  background:#1f2937;
+  padding:10px 12px;
+  border-radius:8px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin-bottom:8px;
+  flex-wrap:wrap;
+}
+.rec-name{color:#60a5fa;}
+.rec-time{font-family:Consolas,monospace;font-size:18px;color:#34d399;}
+.rec-time-str{color:#aaa;font-size:12px;}
+.record-empty{color:#888;padding:10px;}
+</style>
+</head>
+<body>
+<h1>多通道计时器 mm:ss.ms（分钟无上限）</h1>
+<div class="top-bar">
+  <button id="btnAdd">➕新增通道</button>
+  <button id="btnClearAllTimer" class="secondary">全部计时器重置</button>
+  <button id="btnClearAllRecord" class="del">🗑清空全部记录</button>
+</div>
+
+<div id="container"></div>
+
+<div class="record-block">
+  <h2>📋保存记录列表</h2>
+  <div id="recordList"></div>
+</div>
+
+<script>
+const STORAGE_TIMER = "multi_timer_v3";
+const STORAGE_RECORD = "multi_timer_record_v3";
+
+// 格式化毫秒 mm:ss.ms，分钟无上限
+function formatMs(totalMs){
+  const ms = Math.floor(totalMs % 1000);
+  const secAll = Math.floor(totalMs / 1000);
+  const minutes = Math.floor(secAll / 60);
+  const seconds = secAll % 60;
+  const mm = String(minutes);
+  const ss = String(seconds).padStart(2,"0");
+  const mss = String(ms).padStart(3,"0").slice(0,2);
+  return `${mm}:${ss}.${mss}`;
+}
+
+// 计时器通道数据
+let channels = [];
+// 保存的记录：{id,chName,timeStr,ms,timestamp}
+let recordList = [];
+
+// 读取计时器
+function loadTimer(){
+  try{
+    const raw = localStorage.getItem(STORAGE_TIMER);
+    if(raw) channels = JSON.parse(raw);
+    else channels = [{id:Date.now(),name:"通道1",running:false,startAt:null,accumMs:0}];
+  }catch(e){
+    channels = [{id:Date.now(),name:"通道1",running:false,startAt:null,accumMs:0}];
+  }
+}
+function saveTimer(){
+  localStorage.setItem(STORAGE_TIMER, JSON.stringify(channels));
+}
+
+// 读取记录
+function loadRecord(){
+  try{
+    const r = localStorage.getItem(STORAGE_RECORD);
+    if(r) recordList = JSON.parse(r);
+  }catch(e){ recordList = []; }
+}
+function saveRecord(){
+  localStorage.setItem(STORAGE_RECORD, JSON.stringify(recordList));
+}
+
+// 渲染记录列表
+function renderRecord(){
+  const wrap = document.getElementById("recordList");
+  wrap.innerHTML = "";
+  if(recordList.length === 0){
+    wrap.innerHTML = `<div class="record-empty">暂无保存记录</div>`;
+    return;
+  }
+  recordList.forEach(rec=>{
+    const div = document.createElement("div");
+    div.className = "record-item";
+    div.innerHTML = `
+      <span class="rec-name">${escapeHtml(rec.chName)}</span>
+      <span class="rec-time">${rec.timeStr}</span>
+      <span class="rec-time-str">${new Date(rec.timestamp).toLocaleString()}</span>
+      <div style="flex:1"></div>
+      <button class="rec-del del">删除</button>
+    `;
+    div.querySelector(".rec-del").onclick = ()=>{
+      recordList = recordList.filter(x=>x.id!==rec.id);
+      saveRecord();
+      renderRecord();
+    }
+    wrap.appendChild(div);
+  })
+}
+
+function escapeHtml(str){
+  return String(str)
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;");
+}
+
+// 只更新时间数字
+function updateTimeDisplay(){
+  channels.forEach(ch=>{
+    const card = document.querySelector(`[data-cid="${ch.id}"]`);
+    if(!card) return;
+    const timeDom = card.querySelector(".time-display");
+    const btnStart = card.querySelector(".btnStart");
+    let currentMs = ch.accumMs;
+    if(ch.running && ch.startAt){
+      currentMs = ch.accumMs + (performance.now() - ch.startAt);
+    }
+    timeDom.textContent = formatMs(currentMs);
+    btnStart.textContent = ch.running ? "⏸暂停" : "▶开始";
+  })
+}
+
+// 创建单个通道DOM
+function createChannelDom(ch){
+  const cont = document.getElementById("container");
+  const div = document.createElement("div");
+  div.className = "channel-card";
+  div.dataset.cid = ch.id;
+
+  div.innerHTML = `
+    <div class="channel-head">
+      <input class="channel-name-input" placeholder="通道名称，支持汉字、符号"/>
+      <button class="btnDelCh del">删除通道</button>
+    </div>
+    <div class="time-display">0:00.00</div>
+    <div class="ctrl-row">
+      <button class="btnStart">▶开始</button>
+      <button class="btnReset">↺重置</button>
+      <button class="btnSaveRec success">💾保存记录</button>
+    </div>
+  `;
+  cont.appendChild(div);
+
+  const inputName = div.querySelector(".channel-name-input");
+  inputName.value = ch.name;
+  inputName.addEventListener("input",()=>{
+    ch.name = inputName.value;
+    saveTimer();
+  })
+
+  div.querySelector(".btnStart").addEventListener("click",()=>{
+    if(!ch.running){
+      ch.running = true;
+      ch.startAt = performance.now();
+    }else{
+      ch.running = false;
+      ch.accumMs += performance.now() - ch.startAt;
+      ch.startAt = null;
+    }
+    saveTimer();
+  })
+
+  div.querySelector(".btnReset").addEventListener("click",()=>{
+    ch.running = false;
+    ch.startAt = null;
+    ch.accumMs = 0;
+    saveTimer();
+  })
+
+  // 保存当前计时到记录列表
+  div.querySelector(".btnSaveRec").addEventListener("click",()=>{
+    let currentMs = ch.accumMs;
+    if(ch.running && ch.startAt){
+      currentMs = ch.accumMs + (performance.now() - ch.startAt);
+    }
+    recordList.push({
+      id: Date.now(),
+      chName: ch.name,
+      timeStr: formatMs(currentMs),
+      ms: currentMs,
+      timestamp: Date.now()
+    })
+    saveRecord();
+    renderRecord();
+  })
+
+  div.querySelector(".btnDelCh").addEventListener("click",()=>{
+    channels = channels.filter(c=>c.id !== ch.id);
+    div.remove();
+    saveTimer();
+  })
+}
+
+function initAllDom(){
+  const cont = document.getElementById("container");
+  cont.innerHTML = "";
+  channels.forEach(ch=>createChannelDom(ch));
+}
+
+function tickLoop(){
+  updateTimeDisplay();
+  requestAnimationFrame(tickLoop);
+}
+
+// 新增通道
+document.getElementById("btnAdd").addEventListener("click",()=>{
+  const newCh = {
+    id: Date.now(),
+    name: `通道${channels.length+1}`,
+    running:false,
+    startAt:null,
+    accumMs:0
+  }
+  channels.push(newCh);
+  createChannelDom(newCh);
+  saveTimer();
+})
+
+// 全部计时器重置
+document.getElementById("btnClearAllTimer").addEventListener("click",()=>{
+  channels.forEach(ch=>{
+    ch.running = false;
+    ch.startAt = null;
+    ch.accumMs = 0;
+  })
+  saveTimer();
+})
+
+// 清空全部记录
+document.getElementById("btnClearAllRecord").addEventListener("click",()=>{
+  recordList = [];
+  saveRecord();
+  renderRecord();
+})
+
+// 初始化
+loadTimer();
+loadRecord();
+initAllDom();
+renderRecord();
+tickLoop();
+</script>
+</body>
+</html>
