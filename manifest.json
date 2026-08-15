@@ -1,0 +1,13 @@
+{
+  "background_color": "#0d100d",
+  "dir": "ltr",
+  "display": "standalone",
+  "name": "多通道计时器",
+  "orientation": "any",
+  "scope": "/",
+  "short_name": "计时器",
+  "start_url": "https://lingguanhua1.github.io/mystoryhome/",
+  "theme_color": "#ffffff",
+  "description": "多通道mm:ss.ms计时器，分钟无上限，支持本地记录保存",
+  "lang": "zh"
+}
